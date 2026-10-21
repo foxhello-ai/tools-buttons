@@ -25,7 +25,7 @@ curl -fsSL https://raw.githubusercontent.com/foxhello-ai/tools-buttons/download/
 下面是从源码手工接入的方式：
 
 将本工具目录放在一个固定位置；所有项目可以共用一份工具，不需要复制程序。
-当前仓库中的入口是 `deliverables/project-actions/project_actions.py`。
+当前仓库中的入口是 `project-actions/project_actions.py`。
 
 ```bash
 # 以下路径换成工具的实际存放位置。
