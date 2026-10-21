@@ -1,0 +1,26 @@
+{
+  "version": "0.1.0",
+  "buildId": "d3330055645b2cc6",
+  "platform": "macos",
+  "architectures": [
+    "x86_64",
+    "arm64"
+  ],
+  "minMacOS": "13.0",
+  "pythonVersion": "3.12.15",
+  "pythonSources": {
+    "x86_64": {
+      "target": "x86_64",
+      "sha256": "dfe418e59942d3a73789846a161ba973ea4a1b6e2fa8636bc16ad49c398ff6e9",
+      "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261020/cpython-3.12.15%2B20261020-x86_64-apple-darwin-install_only_stripped.tar.gz"
+    },
+    "arm64": {
+      "target": "aarch64",
+      "sha256": "e54a19fd9af218ddd4ed66bbec65f4e9062724ea848a0ddbd269e37765d9959e",
+      "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261020/cpython-3.12.15%2B20261020-aarch64-apple-darwin-install_only_stripped.tar.gz"
+    }
+  },
+  "sourceRepository": "https://github.com/foxhello-ai/tools-buttons",
+  "installerSha256": "f9a550862b6e5bfc62df2efb09110f272b4e0b12260cacc8ac0932f615fd9167",
+  "installerBytes": 67073032
+}
