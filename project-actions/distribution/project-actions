@@ -1,0 +1,11 @@
+#!/bin/bash
+set -euo pipefail
+release_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+case "$(uname -m)" in
+  arm64) runtime_arch=arm64 ;;
+  x86_64) runtime_arch=x86_64 ;;
+  *) printf '%s\n' 'Unsupported CPU architecture' >&2; exit 1 ;;
+esac
+export PYTHONDONTWRITEBYTECODE=1
+exec "$release_dir/ProjectActions.app/Contents/Resources/Python-$runtime_arch/bin/python3" \
+  -I -B "$release_dir/manage.py" "$@"

@@ -1,0 +1,9 @@
+# Project Actions
+
+处理本目录的按钮配置或脚本前，先阅读 [AI_GUIDE.md](AI_GUIDE.md)。
+
+- `actions.json` 定义按钮、命令入口及展示用的工作流；字段结构见 `schema.json`。
+- `scripts/` 存放项目自己的业务脚本；使用指南中的辅助函数上报日志、节点、进度与产物。
+- 保留其他已有动作和项目 ID；新增功能通常只修改 JSON 与对应脚本。
+- 先验证配置和 Shell 语法，再在适合的环境验证实际任务；事件细节见 `PROTOCOL.md`。
+- `runs/` 与 `.runtime*` 为本地运行数据，不纳入版本库。

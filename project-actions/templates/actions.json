@@ -1,0 +1,30 @@
+{
+  "$schema": "./schema.json",
+  "version": 1,
+  "project": {"id": "example", "name": "项目工具"},
+  "actions": [
+    {
+      "id": "directory",
+      "icon": "folder",
+      "tooltip": "查看当前目录",
+      "command": ["bash", ".project-actions/scripts/directory.sh"],
+      "cwd": ".",
+      "timeout": 30
+    },
+    {
+      "id": "project-check",
+      "icon": "play",
+      "tooltip": "运行项目检查示例",
+      "command": ["bash", ".project-actions/scripts/project-check.sh"],
+      "cwd": ".",
+      "timeout": 60,
+      "workflow": {
+        "nodes": [
+          {"id": "inspect", "label": "检查目录"},
+          {"id": "count", "label": "统计文件", "dependsOn": ["inspect"]},
+          {"id": "report", "label": "生成报告", "dependsOn": ["count"]}
+        ]
+      }
+    }
+  ]
+}
