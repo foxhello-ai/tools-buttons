@@ -16,7 +16,7 @@
 macOS 13+ 可在目标项目目录中直接执行一条命令（内置 Python，无需本地编译）：
 
 ```bash
-curl -fsSL https://github.com/foxhello-ai/tools-buttons/releases/latest/download/project-actions-macos.run | bash
+curl -fsSL https://raw.githubusercontent.com/foxhello-ai/tools-buttons/download/project-actions-macos.run | bash
 ```
 
 安装后，其他项目执行 `~/.local/bin/project-actions add .` 即可。会生成配置和 AI 文档、保留已有文件，

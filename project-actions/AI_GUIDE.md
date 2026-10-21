@@ -16,7 +16,7 @@
 首次接入 macOS 项目也可以执行一条命令；安装包内含 Python 和桌面程序：
 
 ```bash
-curl -fsSL https://github.com/foxhello-ai/tools-buttons/releases/latest/download/project-actions-macos.run | bash
+curl -fsSL https://raw.githubusercontent.com/foxhello-ai/tools-buttons/download/project-actions-macos.run | bash
 ```
 
 如果正在使用源码版，项目尚未初始化时，使用工具的实际安装路径执行：

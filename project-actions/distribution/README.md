@@ -3,7 +3,7 @@
 在目标项目目录中执行（macOS 13+，Intel / Apple Silicon）：
 
 ```bash
-curl -fsSL https://github.com/foxhello-ai/tools-buttons/releases/latest/download/project-actions-macos.run | bash
+curl -fsSL https://raw.githubusercontent.com/foxhello-ai/tools-buttons/download/project-actions-macos.run | bash
 ```
 
 一个安装文件包含 Swift 桌面应用、两种 CPU 的 Python 3.12 运行环境、执行服务、Web 页面、
@@ -40,7 +40,7 @@ JSON Schema、示例 Shell 和 AI 文档。使用时不需要另外安装 Python
 如需先下载查看文件，再执行：
 
 ```bash
-curl -fL https://github.com/foxhello-ai/tools-buttons/releases/latest/download/project-actions-macos.run -o /tmp/project-actions-macos.run
+curl -fL https://raw.githubusercontent.com/foxhello-ai/tools-buttons/download/project-actions-macos.run -o /tmp/project-actions-macos.run
 bash /tmp/project-actions-macos.run --project /path/to/project
 ```
 

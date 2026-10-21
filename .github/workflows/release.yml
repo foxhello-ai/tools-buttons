@@ -24,6 +24,16 @@ jobs:
         run: python3 project-actions/distribution/build-release.py --version "${GITHUB_REF_NAME#v}" --output-dir dist
       - name: Verify installation and packaged tasks
         run: python3 project-actions/distribution/verify-release.py dist/project-actions-macos.run
+      - name: Update single-file download branch
+        run: |
+          git fetch origin download
+          git worktree add --detach "$RUNNER_TEMP/download-assets" FETCH_HEAD
+          cp dist/project-actions-macos.run dist/project-actions-macos.run.sha256 dist/release.json "$RUNNER_TEMP/download-assets/"
+          git -C "$RUNNER_TEMP/download-assets" config user.name 'github-actions[bot]'
+          git -C "$RUNNER_TEMP/download-assets" config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git -C "$RUNNER_TEMP/download-assets" add project-actions-macos.run project-actions-macos.run.sha256 release.json
+          git -C "$RUNNER_TEMP/download-assets" commit -m "Publish installer $GITHUB_REF_NAME"
+          git -C "$RUNNER_TEMP/download-assets" push origin HEAD:download
       - name: Publish release assets
         env:
           GH_TOKEN: ${{ github.token }}
@@ -32,7 +42,7 @@ jobs:
           在目标项目目录执行：
 
           ```bash
-          curl -fsSL https://github.com/foxhello-ai/tools-buttons/releases/latest/download/project-actions-macos.run | bash
+          curl -fsSL https://raw.githubusercontent.com/foxhello-ai/tools-buttons/download/project-actions-macos.run | bash
           ```
 
           内置 Swift 桌面程序、Intel / Apple Silicon Python 运行环境、执行服务、Web 页面和 AI 文档。
