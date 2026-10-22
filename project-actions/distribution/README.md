@@ -29,8 +29,14 @@ JSON Schema、示例 Shell 和 AI 文档。使用时不需要另外安装 Python
 ~/.local/bin/project-actions open .                # 打开已接入项目的按钮
 ~/.local/bin/project-actions validate .            # 验证 JSON 与图结构
 ~/.local/bin/project-actions web .                 # 启动浏览器模式
+~/.local/bin/project-actions example .              # 本地参数／节点续跑示例（0.2.0+）
+~/.local/bin/project-actions docs .                 # 更新项目指南与 Schema，备份不同的旧副本
 ~/.local/bin/project-actions version
 ```
+
+0.2.0 包含参数选择、预览确认、检查点、从节点继续和业务示例；详见项目内 `PARAMETERS_AND_RESUME.md`。
+升级保留已有项目指南，执行 `project-actions docs .` 更新，旧副本位于 `.project-actions/.docs-backup/`。
+云端下载包版本取决于最新发布，源码构建完成不代表云端已发布。
 
 默认安装到 `~/Library/Application Support/ProjectActions/releases/<版本>-<构建ID>/`。
 `current` 指向本次安装版本；更新安装包会创建新版本目录，保留旧版本及所有项目配置。
@@ -51,7 +57,7 @@ bash /tmp/project-actions-macos.run --project /path/to/project
 本地构建（仅构建者需要 Xcode Command Line Tools 与 Python 3.9+）：
 
 ```bash
-python3 project-actions/distribution/build-release.py --version 0.1.0
+python3 project-actions/distribution/build-release.py --version 0.2.0
 ```
 
 构建会从 `astral-sh/python-build-standalone` 下载固定版本与 SHA-256 的运行环境，并保留上游许可证。

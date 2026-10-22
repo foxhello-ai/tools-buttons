@@ -4,6 +4,10 @@ struct ActionDefinition: Decodable, Equatable {
     let id: String
     let icon: String?
     let tooltip: String
+    struct Parameter: Decodable, Equatable { let name: String }
+    let parameters: [Parameter]?
+    let previewCommand: [String]?
+    var requiresConfirmation: Bool { !(parameters ?? []).isEmpty || previewCommand != nil }
 }
 
 struct ActionRun: Decodable {

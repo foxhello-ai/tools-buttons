@@ -28,9 +28,9 @@ project_id = None
 runtime = demo_dir.parent / 'project-actions'
 bundled = app_dir / 'Contents/Resources/ProjectActions'
 bundled.mkdir(parents=True, exist_ok=True)
-for name in ('project_actions.py', 'schema.json', 'AI_GUIDE.md', 'PROTOCOL.md'):
+for name in ('project_actions.py', 'action_inputs.py', 'schema.json', 'AI_GUIDE.md', 'PROTOCOL.md', 'PARAMETERS_AND_RESUME.md'):
     shutil.copy2(runtime / name, bundled / name)
-for name in ('web', 'shell', 'templates'):
+for name in ('web', 'shell', 'templates', 'examples'):
     shutil.copytree(runtime / name, bundled / name, dirs_exist_ok=True)
 state_path = Path(os.environ.get('CODEX_HOME', str(Path.home() / '.codex'))) / '.codex-global-state.json'
 try:

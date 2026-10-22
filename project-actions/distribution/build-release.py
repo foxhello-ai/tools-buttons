@@ -67,7 +67,7 @@ def unpack_python(archive, destination):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--version', default='0.1.0')
+    parser.add_argument('--version', default='0.2.0')
     parser.add_argument('--output-dir', type=Path, default=TOOL.parent / 'releases')
     parser.add_argument('--cache-dir', type=Path, default=TOOL.parent.parent / '.release-cache/project-actions')
     args = parser.parse_args()

@@ -2,7 +2,8 @@
 
 适用于帮助用户新增、修改项目按钮的 AI。配置版本为 `1`。本指南可以单独复制到项目的
 `.project-actions/AI_GUIDE.md`；字段结构见同目录的 [schema.json](schema.json)，事件细节见
-[PROTOCOL.md](PROTOCOL.md)。
+[PROTOCOL.md](PROTOCOL.md)。参数表单、业务脚本选项、检查点和从节点继续的完整接法见
+[PARAMETERS_AND_RESUME.md](PARAMETERS_AND_RESUME.md)（0.2.0+）。
 
 ## 1. 接到任务后先确认这些内容
 
@@ -45,6 +46,10 @@ python3 /path/to/project-actions/project_actions.py init /path/to/project
 | `actions[].cwd` | 默认 `.` | 进程工作目录；相对项目根目录，也可写绝对路径；目录必须已存在 |
 | `actions[].timeout` | 默认 `300` | 超时秒数，`0 < timeout <= 86400`，支持小数 |
 | `actions[].env` | 默认 `{}` | 额外环境变量，所有值必须是字符串，例如 `"RETRIES": "3"` |
+| `actions[].parameters` | 默认 `[]` | 通用参数字段，动态或静态选项，不执行 Git 等业务逻辑 |
+| `actions[].previewCommand` | 可省略 | 预览命令，stdout 返回 JSON；续跑必填 |
+| `actions[].resume.nodes` | 可省略 | 允许申请从此继续的节点 ID；不调度业务命令 |
+| `actions[].inputTimeout` | 默认 `30` | 每次选项／预览超时，最大 120 秒 |
 | `actions[].workflow.nodes` | 默认 `[]` | 展示的节点定义；整个 `workflow` 可省略 |
 | `nodes[].id` | 必填 | 本动作内唯一，脚本上报时使用同一个 ID |
 | `nodes[].label` | 默认节点 ID | 节点展示名称，1–128 字符 |
@@ -65,7 +70,8 @@ Web 还支持 emoji 图标；Swift 桌面支持有效的 SF Symbols 名称，不
   推荐保留 `cwd: "."`，在脚本内通过 `cd "$PROJECT_ACTIONS_PROJECT_DIR/subdir"` 切换目录。
 - 路径包含空格时仍是一整个数组元素；Shell 内的路径变量始终加双引号。
 - `env` 值不会展开变量。不要在配置中覆盖工具注入的 `PROJECT_ACTIONS_*` 变量。
-- 当前没有按钮参数输入表单；固定参数写在 `command` 或 `env`，需要不同参数可配置多个动作。
+- 可用 `parameters` 声明 select/text/number/boolean 参数；`optionsCommand` 由业务脚本提供候选项，
+  `previewCommand` 返回摘要和可执行计划。需要续跑时声明 `resume.nodes`，详见参数与续跑指南。
 - 脚本的标准输入关闭；命令应使用适当的非交互模式。
 
 ## 3. 可直接运行的配置与 Shell 示例
@@ -173,6 +179,8 @@ source "${PROJECT_ACTIONS_SHELL:?请通过 Project Actions 启动}"
 | `pa_node` | `pa_node build running` | 更新节点状态；未声明的节点会创建 |
 | `pa_progress` | `pa_progress build 3 10 --message "已处理3项"` | 节点进度显示为 30% |
 | `pa_artifact` | `pa_artifact "$PROJECT_ACTIONS_RUN_DIR/report.txt" --label "报告"` | 在结果中显示报告下载入口 |
+| `pa_checkpoint` | `pa_checkpoint build "$PROJECT_ACTIONS_RUN_DIR/build.json" --label "构建"` | 注册业务恢复文件（本次 run 目录内，最多 16 MiB） |
+| `pa_reuse` | `pa_reuse build "$checkpoint_id"` | 校验后标记计划中的旧结果复用，不重复执行 |
 | `pa_event_json` | 通过标准输入传入一个事件 JSON 对象 | 使用原始协议上报，适合生成复杂事件 |
 
 日志级别为 `debug`、`info`、`warning`、`error`。普通 stdout 自动记录为 `info`，stderr 自动记录为 `error`，
@@ -207,7 +215,8 @@ pa_node package succeeded
 - 如需保留退出码，可用 `if your_command; then ...; else code=$?; pa_node build failed; exit "$code"; fi`。
   不要在命令后无条件 `|| true`，导致真实失败被吞掉。示例 trap 中的 `|| true` 只避免上报失败覆盖原始退出码。
 - 并行步骤应各用一个节点，收集子进程退出码并 `wait` 所有工作；不要共享一个 `current_node` 来判断多个后台任务的失败。
-- 返回 0 且没有失败节点时任务成功。结束时仍为 `running` 的节点会标为成功，`pending` 节点会标为跳过；
+- 有确认计划时，脚本必须明确上报所有 run/reuse 节点成功；复用节点还需 `pa_reuse`，不会凭计划自动标绿。
+- 对没有确认计划的普通按钮，返回 0 且没有失败节点时任务成功。结束时仍为 `running` 的节点会标为成功，`pending` 节点会标为跳过；
   因此应主动上报每个步骤的真实状态，不能依赖结束时的自动补齐来表达业务结果。
 - 取消和超时由执行器处理本机进程组；后台子进程若仍持有输出管道，任务可能继续等待到超时。
   远程 SSH 服务或服务器上的任务是否停止，需远端自行实现。
@@ -226,7 +235,7 @@ JSON
 
 其他语言向 `PROJECT_ACTIONS_EVENT_URL` 发 POST，请求头为
 `Authorization: Bearer <PROJECT_ACTIONS_EVENT_TOKEN>` 和 `Content-Type: application/json`。
-四类事件的最小格式如下，完整限制见 [PROTOCOL.md](PROTOCOL.md)：
+基础四类事件的最小格式如下，完整限制见 [PROTOCOL.md](PROTOCOL.md)：
 
 ```json
 {"type":"log","level":"info","message":"开始构建","nodeId":"build"}
@@ -244,6 +253,8 @@ JSON
 {"type":"artifact","path":".project-actions/runs/<run-id>/report.txt","label":"报告"}
 ```
 
+另外支持 `checkpoint`、节点 `execution:reused` 和 `result`；见参数与续跑指南。
+
 以上为四个独立请求对象，不是一个可直接提交的 JSON 文档。
 报告文件必须先生成，再注册；相对路径以项目根目录为准，与脚本当前 `cwd` 无关。
 文件及符号链接解析后的目标均须位于项目内，优先放到 `PROJECT_ACTIONS_RUN_DIR`。
@@ -254,6 +265,8 @@ JSON
 | 变量 | 用途 |
 |---|---|
 | `PROJECT_ACTIONS_PROJECT_DIR` | 项目根目录绝对路径 |
+| `PROJECT_ACTIONS_PARAMETERS_FILE` | 用户确认的参数 JSON 文件路径 |
+| `PROJECT_ACTIONS_CONTEXT_FILE` | 模式、阶段、确认计划和续跑引用的 JSON 文件路径 |
 | `PROJECT_ACTIONS_RUN_ID` | 本次运行 ID |
 | `PROJECT_ACTIONS_RUN_DIR` | 本次运行独立的数据与产物目录 |
 | `PROJECT_ACTIONS_SHELL` | Shell 辅助函数文件路径 |

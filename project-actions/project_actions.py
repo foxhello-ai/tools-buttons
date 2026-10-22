@@ -19,6 +19,7 @@ import threading
 import time
 import uuid
 import webbrowser
+
 from collections import deque
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -29,17 +30,15 @@ from urllib.request import Request, urlopen
 
 
 ROOT = Path(__file__).resolve().parent
+# Bundled entry points also run with Python -I (which omits the script directory).
+sys.path.insert(0, str(ROOT))
+from action_inputs import (Problem, Inputs, validate as validate_inputs, required_preview,
+                           verify_checkpoint, file_digest, canonical)
 CONFIG_PATH = Path('.project-actions/actions.json')
 IDENTIFIER = re.compile(r'^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$')
 NODE_STATES = {'pending', 'running', 'succeeded', 'failed', 'skipped', 'cancelled'}
 TERMINAL = {'succeeded', 'failed', 'cancelled', 'timed_out', 'interrupted'}
 MAX_EVENTS = 2000
-
-
-class Problem(Exception):
-    def __init__(self, message, status=400):
-        super().__init__(message)
-        self.status = status
 
 
 def now():
@@ -119,6 +118,7 @@ def load_config(project_dir):
         env = action.get('env', {})
         if not isinstance(env, dict) or not all(isinstance(k, str) and isinstance(v, str) and '\x00' not in k + v and '=' not in k for k, v in env.items()):
             raise Problem('env must be an object containing string environment variables')
+        validate_inputs(action)
         workflow = action.get('workflow', {})
         if not isinstance(workflow, dict) or not isinstance(workflow.get('nodes', []), list):
             raise Problem('workflow.nodes must be an array')
@@ -147,10 +147,19 @@ def initial_nodes(action):
 
 
 class Run:
-    def __init__(self, run_dir, action):
+    def __init__(self, run_dir, action, prepared=None):
         self.id = run_dir.name
         self.directory = run_dir
         self.action = copy.deepcopy(action)
+        prepared = prepared or dict(parameters={}, context=dict(version=1,mode='new',plan=[]), preview={})
+        self.parameters = copy.deepcopy(prepared['parameters'])
+        self.context = copy.deepcopy(prepared['context'])
+        self.context.update(runId=self.id, phase='run')
+        self.preview = copy.deepcopy(prepared['preview'])
+        self.checkpoints = []
+        available = {x['id']:x for x in self.context.get('resume',{}).get('checkpoints',[])}
+        self.inherited_checkpoints = [copy.deepcopy(available[x['checkpointId']]) for x in self.context.get('plan',[]) if x['operation']=='reuse']
+        self.result = None
         self.action_id = action['id']
         self.title = action['tooltip']
         self.status = 'queued'
@@ -167,6 +176,8 @@ class Run:
         self.process = None
         self.cancel_requested = False
         self.directory.mkdir(parents=True, exist_ok=False)
+        (self.directory/'parameters.json').write_text(canonical(self.parameters),encoding='utf-8')
+        (self.directory/'context.json').write_text(canonical(self.context),encoding='utf-8')
         self.event_file = (self.directory / 'events.jsonl').open('a', encoding='utf-8', buffering=1)
         self.publish('run', status='queued')
 
@@ -176,7 +187,13 @@ class Run:
                     'status': self.status, 'createdAt': self.created_at, 'finishedAt': self.finished_at,
                     'exitCode': self.exit_code, 'reason': self.reason,
                     'nodes': copy.deepcopy(list(self.nodes.values())), 'artifacts': copy.deepcopy(self.artifacts),
-                    'sequence': self.sequence}
+                    'sequence': self.sequence, 'action': copy.deepcopy(self.action),
+                    'parameters': copy.deepcopy(self.parameters), 'context': copy.deepcopy(self.context),
+                    'preview': copy.deepcopy(self.preview), 'checkpoints': copy.deepcopy(self.checkpoints),
+                    'inheritedCheckpoints': copy.deepcopy(self.inherited_checkpoints), 'result': copy.deepcopy(self.result),
+                    'parentRunId': self.context.get('resume',{}).get('parentRunId'),
+                    'rootRunId': self.context.get('resume',{}).get('rootRunId', self.id),
+                    'resumeFromNode': self.context.get('resume',{}).get('fromNode')}
 
     def persist(self):
         path = self.directory / 'run.json'
@@ -206,6 +223,7 @@ class Runner:
         self.base_url = None
         self.shutting_down = False
         load_config(self.project_dir)
+        self.inputs = Inputs(self.project_dir)
         self.restore_history()
 
     def restore_history(self):
@@ -238,13 +256,45 @@ class Runner:
                 return self.runs[run_id].snapshot()
             if run_id in self.history:
                 return copy.deepcopy(self.history[run_id])
+        if re.fullmatch(r'[a-f0-9]{32}', run_id):
+            path = self.run_root/run_id/'run.json'
+            if self.run_root.resolve() in path.resolve().parents and path.is_file():
+                item=json.loads(path.read_text(encoding='utf-8'))
+                if item.get('id')==run_id and item.get('status') in TERMINAL:return item
         raise Problem('Task not found', 404)
 
-    def start(self, action_id):
+    def action(self, action_id):
         config = load_config(self.project_dir)
         action = next((item for item in config['actions'] if item['id'] == action_id), None)
         if action is None:
             raise Problem('Action not found in project configuration', 404)
+        return action
+
+    def options(self, action_id):
+        return self.inputs.options(self.action(action_id))
+
+    def preview_action(self, action_id, parameters, options_id=None):
+        action=self.action(action_id)
+        values=self.inputs.parameters(action,parameters,options_id)
+        return self.inputs.preview(action,values,dict(version=1,mode='new'))
+
+    def preview_resume(self, run_id, node_id):
+        parent=self.get_snapshot(run_id)
+        if parent['status'] not in TERMINAL or parent['status']=='succeeded':
+            raise Problem('请先等待任务停止；成功任务无需续跑',409)
+        action=self.action(parent['actionId'])
+        if node_id not in action.get('resume',{}).get('nodes',[]) or node_id not in {x['id'] for x in parent['nodes']}:
+            raise Problem('该节点未启用续跑')
+        if parent.get('action')!=action:raise Problem('原任务的动作配置已变化，请新建任务',409)
+        checkpoints=parent.get('inheritedCheckpoints',[])+parent.get('checkpoints',[])
+        if not checkpoints:raise Problem('该任务未保存可恢复结果',409)
+        context=dict(version=1,mode='resume',nodeIds=[x['id'] for x in parent['nodes']],resume=dict(
+            fromNode=node_id,parentRunId=run_id,rootRunId=parent.get('rootRunId',run_id),
+            parentRunDirectory=str(self.run_root/run_id),checkpoints=checkpoints))
+        return self.inputs.preview(action,copy.deepcopy(parent.get('parameters',{})),context)
+
+    def start(self, action_id, preview_id=None):
+        action=self.action(action_id)
         with self.lock:
             if self.shutting_down:
                 raise Problem('Service is shutting down', 503)
@@ -253,7 +303,13 @@ class Runner:
                 raise Problem('This action already has a running task', 409)
             if len(active) >= 4:
                 raise Problem('At most four tasks can run at once', 409)
-            run = Run(self.run_root / uuid.uuid4().hex, action)
+            prepared=None
+            if preview_id is not None or required_preview(action):
+                prepared=self.inputs.consume(action,preview_id)
+                parent_id=prepared['context'].get('resume',{}).get('parentRunId')
+                if parent_id and self.get_snapshot(parent_id)['status'] not in TERMINAL:
+                    raise Problem('原任务尚未停止',409)
+            run = Run(self.run_root / uuid.uuid4().hex, action, prepared)
             self.runs[run.id] = run
         threading.Thread(target=self.execute, args=(run,), daemon=True, name='action-' + run.id[:8]).start()
         return run
@@ -308,6 +364,8 @@ class Runner:
                 env = os.environ.copy()
                 env.update(run.action.get('env', {}))
                 env.update({'PROJECT_ACTIONS_PROJECT_DIR': str(self.project_dir),
+                            'PROJECT_ACTIONS_PARAMETERS_FILE': str(run.directory/'parameters.json'),
+                            'PROJECT_ACTIONS_CONTEXT_FILE': str(run.directory/'context.json'),
                             'PROJECT_ACTIONS_RUN_ID': run.id,
                             'PROJECT_ACTIONS_RUN_DIR': str(run.directory),
                             'PROJECT_ACTIONS_EVENT_URL': self.base_url + '/api/runs/' + run.id + '/report',
@@ -316,6 +374,9 @@ class Runner:
                             'PROJECT_ACTIONS_PYTHON': sys.executable,
                             'PROJECT_ACTIONS_SHELL': str(ROOT / 'shell/events.sh'),
                             'PYTHONUNBUFFERED': '1'})
+                for checkpoint in run.inherited_checkpoints:verify_checkpoint(self.project_dir,checkpoint)
+                if run.context['mode']=='resume':
+                    run.publish('log',level='info',source='service',message='从节点 %s 继续；原任务 %s' % (run.context['resume']['fromNode'],run.context['resume']['parentRunId']))
                 kwargs = {'start_new_session': True} if os.name == 'posix' else {'creationflags': subprocess.CREATE_NEW_PROCESS_GROUP}
                 run.process = subprocess.Popen(run.action['command'], cwd=cwd, env=env,
                                                stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, **kwargs)
@@ -352,6 +413,12 @@ class Runner:
                     reason = None if status == 'succeeded' else '命令退出码：%s' % run.process.returncode
                 if status == 'succeeded' and any(node['state'] == 'failed' for node in run.nodes.values()):
                     status, reason = 'failed', '脚本上报了失败节点'
+            if status == 'succeeded' and run.context.get('plan'):
+                for step in run.context['plan']:
+                    node=run.nodes.get(step['nodeId'],{})
+                    if step['operation']!='skip' and (node.get('state')!='succeeded' or (step['operation']=='reuse' and node.get('execution')!='reused')):
+                        status,reason='failed','脚本未确认计划节点结果：'+step['nodeId']
+                        break
             self.finish(run, status, run.process.returncode, reason)
         except Exception as error:
             self.stop_process(run)
@@ -427,6 +494,15 @@ class Runner:
                     if not isinstance(state, str) or state not in NODE_STATES:
                         raise Problem('Unknown node state')
                     node['state'] = state
+                    if state == 'running':
+                        node.pop('execution',None);node.pop('reusedFrom',None)
+                    if payload.get('execution') == 'reused':
+                        step=next((x for x in run.context.get('plan',[]) if x['nodeId']==node_id and x['operation']=='reuse' and x['checkpointId']==payload.get('checkpointId')),None)
+                        checkpoint=next((x for x in run.inherited_checkpoints if x['id']==payload.get('checkpointId')),None)
+                        if state!='succeeded' or step is None or checkpoint is None:raise Problem('复用事件必须对应已确认计划和检查点')
+                        verify_checkpoint(self.project_dir,checkpoint)
+                        node.update(execution='reused',reusedFrom=dict(runId=checkpoint['runId'],checkpointId=checkpoint['id']))
+                    elif 'execution' in payload:raise Problem('execution 只支持 reused')
                     if 'label' in payload:
                         node['label'] = require_string(payload['label'], 'Node label', 128)
                     if 'dependsOn' in payload:
@@ -448,6 +524,22 @@ class Runner:
                 check_graph(nodes)
                 run.nodes = nodes
                 return run.publish('node', node=copy.deepcopy(node), nodes=copy.deepcopy(list(nodes.values())))
+            if event_type == 'checkpoint':
+                node_id=valid_id(payload.get('nodeId'),'Node ID')
+                if node_id not in run.nodes:raise Problem('检查点必须属于已声明或已上报节点')
+                path=Path(require_string(payload.get('path'),'Checkpoint path'))
+                path=(run.directory/path).resolve() if not path.is_absolute() else path.resolve()
+                if run.directory.resolve() not in path.parents or not path.is_file() or path.stat().st_size>16*1024*1024:
+                    raise Problem('检查点必须是本次任务目录内最多 16 MiB 的文件')
+                checkpoint=dict(id=uuid.uuid4().hex,nodeId=node_id,runId=run.id,path=str(path),sha256=file_digest(path),size=path.stat().st_size,
+                                label=require_string(payload.get('label',path.name),'Checkpoint label',256))
+                run.checkpoints=[x for x in run.checkpoints if x['path']!=str(path)]+[checkpoint]
+                return run.publish('checkpoint',checkpoint=checkpoint)
+            if event_type == 'result':
+                data=payload.get('data')
+                if not isinstance(data,dict) or len(canonical(data).encode("utf-8"))>32768:raise Problem('result.data 必须是最多 32 KiB 的 JSON 对象')
+                run.result=copy.deepcopy(data)
+                return run.publish('result',data=data)
             if event_type == 'artifact':
                 raw = require_string(payload.get('path'), 'Artifact path')
                 path = Path(raw)
@@ -459,7 +551,7 @@ class Runner:
                 require_string(artifact['label'], 'Artifact label', 256)
                 run.artifacts.append(artifact)
                 return run.publish('artifact', artifact=artifact)
-            raise Problem('Unknown event type; expected log, node, progress or artifact')
+            raise Problem('Unknown event type; expected log, node, progress, artifact, checkpoint or result')
 
     def events_after(self, run_id, after):
         with self.lock:
@@ -622,6 +714,9 @@ class Handler(BaseHTTPRequestHandler):
                 self.wfile.write(body)
                 return
             self.authorize()
+            options_match=re.fullmatch(r'/api/actions/([A-Za-z0-9_.-]+)/options',path)
+            if options_match:
+                self.send_json(200,self.server.runner.options(options_match.group(1)));return
             if path == '/api/project':
                 config = load_config(self.server.runner.project_dir)
                 self.send_json(200, {'project': config['project'], 'actions': config['actions'],
@@ -682,11 +777,23 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json(200, {'sequence': event['sequence']})
                 return
             self.authorize()
+            preview_match=re.fullmatch(r'/api/actions/([A-Za-z0-9_.-]+)/preview',self.path)
+            resume_match=re.fullmatch(r'/api/runs/([a-f0-9]{32})/resume-preview',self.path)
+            if preview_match or resume_match:
+                payload=self.read_json()
+                if not isinstance(payload,dict):raise Problem('请求必须是 JSON 对象')
+                if preview_match:
+                    if set(payload)-{'parameters','optionsId'}:raise Problem('预览仅接受 parameters/optionsId')
+                    data=self.server.runner.preview_action(preview_match.group(1),payload.get('parameters',{}),payload.get('optionsId'))
+                else:
+                    if set(payload)!={'nodeId'}:raise Problem('续跑预览仅接受 nodeId')
+                    data=self.server.runner.preview_resume(resume_match.group(1),valid_id(payload['nodeId'],'Node ID'))
+                self.send_json(200,data);return
             if self.path == '/api/runs':
                 payload = self.read_json()
-                if not isinstance(payload, dict) or set(payload) != {'actionId'}:
-                    raise Problem('Specify only actionId; commands come from the project configuration')
-                run = self.server.runner.start(valid_id(payload['actionId'], 'Action ID'))
+                if not isinstance(payload, dict) or 'actionId' not in payload or set(payload)-{'actionId','previewId'}:
+                    raise Problem('Specify actionId and optional previewId; commands come from the project configuration')
+                run = self.server.runner.start(valid_id(payload['actionId'], 'Action ID'),payload.get('previewId'))
                 self.send_json(202, run.snapshot())
                 return
             match = re.fullmatch(r'/api/runs/([a-f0-9]{32})/cancel', self.path)
@@ -713,7 +820,7 @@ def initialize(project_dir):
         raise Problem('Project already has .project-actions/scripts; existing files were preserved')
     shutil.copytree(ROOT / 'templates/scripts', scripts)
     shutil.copy2(ROOT / 'schema.json', destination / 'schema.json')
-    for name in ('AI_GUIDE.md', 'PROTOCOL.md'):
+    for name in ('AI_GUIDE.md', 'PROTOCOL.md', 'PARAMETERS_AND_RESUME.md'):
         shutil.copy2(ROOT / name, destination / name)
     shutil.copy2(ROOT / 'templates/AGENTS.md.template', destination / 'AGENTS.md')
     config = json.loads((ROOT / 'templates/actions.json').read_text(encoding='utf-8'))
@@ -736,6 +843,11 @@ def emit(arguments):
             payload['dependsOn'] = arguments.after
         if arguments.message:
             payload['message'] = arguments.message
+    elif arguments.kind == 'reuse':
+        payload = {'type':'node','id':arguments.id,'state':'succeeded','execution':'reused','checkpointId':arguments.checkpoint}
+    elif arguments.kind == 'checkpoint':
+        payload = {'type':'checkpoint','nodeId':arguments.node,'path':arguments.path}
+        if arguments.label:payload['label']=arguments.label
     elif arguments.kind == 'progress':
         payload = {'type': 'progress', 'id': arguments.id, 'completed': arguments.completed, 'total': arguments.total}
         if arguments.message:
@@ -772,6 +884,8 @@ def main():
     serve.add_argument('--open', action='store_true', help='Open the page in the default browser')
     validate = commands.add_parser('validate', help='Validate the project configuration')
     validate.add_argument('--project', default='.')
+    example = commands.add_parser('example',help='Add the isolated parameter/resume demo')
+    example.add_argument('--project',default='.')
     event = commands.add_parser('emit', help='Report a task event from a running script')
     kinds = event.add_subparsers(dest='kind', required=True)
     log = kinds.add_parser('log')
@@ -792,6 +906,13 @@ def main():
     artifact = kinds.add_parser('artifact')
     artifact.add_argument('path')
     artifact.add_argument('--label')
+    checkpoint = kinds.add_parser('checkpoint', help='Register an opaque recovery checkpoint')
+    checkpoint.add_argument('node')
+    checkpoint.add_argument('path')
+    checkpoint.add_argument('--label')
+    reuse = kinds.add_parser('reuse', help='Confirm a validated reused node')
+    reuse.add_argument('id')
+    reuse.add_argument('checkpoint')
     kinds.add_parser('json', help='Read one event JSON object from standard input')
     arguments = parser.parse_args()
     try:
@@ -800,6 +921,8 @@ def main():
         elif arguments.command == 'validate':
             config = load_config(Path(arguments.project).resolve())
             print('Valid: %s (%s actions)' % (config['project']['name'], len(config['actions'])))
+        elif arguments.command == 'example':
+            subprocess.run([sys.executable,str(ROOT/'examples/resumable-pipeline/install.py'),str(Path(arguments.project).resolve())],check=True)
         elif arguments.command == 'emit':
             emit(arguments)
         else:

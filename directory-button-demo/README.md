@@ -25,3 +25,12 @@ bash directory-button-demo/launch-desktop.sh /path/to/project
 `verify-native.sh` 验证事件处理、拖动、显隐和真实 Shell / WebKit 链路；
 其中生命周期夹具需要运行 Codex。安装器验证使用独立项目和偏好设置，
 不等于真实桌面鼠标或真实 Codex 项目切换的端到端验证。
+
+## 参数与从节点继续（0.2.0+）
+
+有 parameters 或 previewCommand 的按钮打开参数确认窗口，确认前不创建任务。
+任务停止后点击配置允许的节点，再点“从此节点继续”，业务脚本校验后返回复用／执行计划。
+桌面继续使用共享 WebKit 页面和执行协议，无需为每个业务添加 Swift 代码。
+完整业务接法见 [参数与续跑指南](../project-actions/PARAMETERS_AND_RESUME.md)。
+
+`python3 verify-parameters-resume.py` 在临时项目验证原生按钮、取消后重开、预览、停止与续跑；不操作真实部署。

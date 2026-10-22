@@ -53,6 +53,7 @@ your-project/
     schema.json                  # 编辑器自动补全与结构说明
     AGENTS.md                    # AI 阅读入口
     AI_GUIDE.md                  # JSON 与脚本接入指南，含可运行示例
+    PARAMETERS_AND_RESUME.md    # 参数、检查点与续跑业务接入
     PROTOCOL.md                  # 事件字段与接口协议
     scripts/                     # 自己编写的脚本
     runs/<run-id>/               # 每次运行的状态、完整事件日志、任务产物
@@ -106,6 +107,14 @@ your-project/
 python3 /path/to/project-actions/project_actions.py validate --project /path/to/your-project
 ```
 
+## 参数和节点续跑（0.2.0+）
+
+动作可增加 `parameters`、`previewCommand` 和 `resume.nodes`。应用只处理通用数据；
+worktree、分支、源码和部署的业务逻辑仍由项目脚本实现。
+`project-actions example .` 可追加本地模拟按钮，演练停止后从部署节点继续，复用前面的构建结果。
+每次继续保留独立参数／上下文／日志／结果和父子任务记录。
+完整配置、HTTP API 和业务 Shell 示例见 [PARAMETERS_AND_RESUME.md](PARAMETERS_AND_RESUME.md)。
+
 ## Shell 上报接口
 
 脚本运行时会自动获得上报地址、任务凭据和辅助工具路径：
@@ -142,6 +151,8 @@ pa_node release succeeded
 | `pa_node` | `节点ID 状态 [--label 名称] [--after 前置节点ID] [--message 说明]` |
 | `pa_progress` | `节点ID 已完成数量 总数量 [--message 说明]` |
 | `pa_artifact` | `项目内文件路径 [--label 展示名称]`，生成可下载的任务产物 |
+| `pa_checkpoint` | `节点ID 本次任务内文件 [--label 名称]`，登记业务恢复文件 |
+| `pa_reuse` | `节点ID 检查点ID`，经业务复核后确认计划中的复用结果 |
 | `pa_event_json` | 从标准输入读取一个事件 JSON 对象 |
 
 节点状态：`pending`、`running`、`succeeded`、`failed`、`skipped`、`cancelled`。
@@ -201,3 +212,6 @@ python3 -m unittest discover -s tests -v
 集成测试实际启动脚本和 HTTP 服务，验证项目隔离、配置重载、Shell 事件、进度、任务图、产物下载、
 SSE、历史恢复、stdout/stderr、失败、超时、取消、重复点击和接口边界。
 另覆盖 CLI 服务发现、凭据文件权限、项目服务互斥和退出清理；桌面集成检查使用 `../directory-button-demo/verify-native.sh`。
+
+参数与续跑集成测试还覆盖选项／预览、固定输入、产物丢失、预览后变化、从指定节点重建、连续续跑与历史关联；
+原生端可执行 `python3 ../directory-button-demo/verify-parameters-resume.py` 验证完整点击流程。

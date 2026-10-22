@@ -12,6 +12,10 @@
   <main id="app">
     <nav id="launcher" aria-label="项目操作"></nav>
     <p id="notice" role="status" hidden></p>
+    <section id="action-dialog" hidden aria-label="参数与执行确认">
+      <header class="workspace-header"><div><p id="dialog-project" class="eyebrow"></p><h1 id="dialog-title">执行确认</h1></div><button id="dialog-cancel" class="text-button">取消</button></header>
+      <div class="dialog-body"><div id="parameter-fields"></div><div id="dialog-preview"></div><p id="dialog-error" role="alert" hidden></p><div class="dialog-controls"><button id="dialog-refresh" class="text-button">刷新选项</button><button id="dialog-inspect" class="text-button">预览</button><button id="dialog-confirm" class="primary-button" disabled>确认执行</button></div></div>
+    </section>
     <section id="workspace" hidden aria-label="任务详情">
       <header class="workspace-header">
         <div><p id="project-name" class="eyebrow"></p><h1 id="run-title">任务记录</h1></div>
@@ -23,10 +27,12 @@
       </header>
       <div id="history" hidden></div>
       <div id="task-content" hidden>
+        <section id="run-context" hidden aria-label="参数与续跑来源"></section>
         <div id="run-reason" role="status" hidden></div>
         <section id="flow-section" aria-label="任务流程" hidden>
           <div class="section-heading"><h2>任务流程</h2><button id="clear-filter" class="text-button" hidden>查看全部日志</button></div>
           <div id="graph" aria-label="任务节点状态"></div>
+          <div id="node-actions" hidden></div>
         </section>
         <section class="log-section" aria-label="任务日志">
           <div class="section-heading"><h2 id="log-title">运行日志</h2><span id="log-note"></span></div>

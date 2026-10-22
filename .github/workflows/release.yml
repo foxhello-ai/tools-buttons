@@ -48,6 +48,19 @@ jobs:
           内置 Swift 桌面程序、Intel / Apple Silicon Python 运行环境、执行服务、Web 页面和 AI 文档。
           无需另外安装 Python 或编译工具。macOS 13+。
           后续项目执行 `~/.local/bin/project-actions add .`。
+          支持业务脚本提供通用参数、预览与检查点，停止后可从指定节点继续并保留关联历史。
+          `project-actions example .` 安装本地演练示例；`project-actions docs .` 更新项目文档与 Schema，备份旧副本。
           安装器会保留已有项目配置，并通过 SHA-256 校验内置压缩包。
+
+          升级已有项目：先等待任务结束，退出旧版桌面按钮与独立 Web 服务，再在项目目录执行：
+
+          ```bash
+          curl -fsSL https://raw.githubusercontent.com/foxhello-ai/tools-buttons/download/project-actions-macos.run | bash -s -- --no-launch
+          ~/.local/bin/project-actions version
+          ~/.local/bin/project-actions docs .
+          ~/.local/bin/project-actions open .
+          ```
+
+          version 输出应与本次发布标签一致。已有普通按钮保持兼容；节点续跑需要业务脚本按文档登记检查点。
           NOTES
           gh release create "$GITHUB_REF_NAME" dist/project-actions-macos.run dist/project-actions-macos.run.sha256 dist/release.json --verify-tag --title "Project Actions $GITHUB_REF_NAME" --notes-file "$RUNNER_TEMP/release-notes.md"

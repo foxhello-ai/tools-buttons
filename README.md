@@ -12,6 +12,8 @@
 - **桌面按钮**：macOS 原生悬浮图标，悬停显示说明，支持拖动和按项目记住位置。
 - **显隐控制**：默认跟随 Codex 当前选择的关联项目，离开时隐藏、返回时恢复；菜单栏可手动控制。
 - **两种界面**：桌面模式在应用任务窗口中显示详情；Web 模式在浏览器中展开同一套任务界面。
+- **参数与确认**：JSON 生成选择框／文本／数字／开关，候选项和预览摘要由业务脚本提供。
+- **从节点继续**：停止、失败、超时或中断后点击节点，校验检查点后复用前置结果，每次继续保留独立历史。
 - **任务可见**：实时日志、节点状态、进度、按节点筛选日志、历史记录和报告下载。
 - **直接接入脚本**：自动收集 stdout/stderr，也可主动上报结构化日志、节点、进度与产物。
 - **便于 AI 维护**：接入时生成配置指南、JSON Schema、事件协议和 `AGENTS.md` 阅读入口。
@@ -32,6 +34,12 @@
 **点击节点筛选日志**：选中“统计文件”后，只展示通过 `pa_log --node count` 关联到该节点的日志。
 
 ![选中统计文件节点，仅展示对应节点的结构化日志](docs/images/node-logs.jpg)
+
+**参数预览和节点续跑（0.2.0+）**：来源、环境、计划由业务脚本返回。以下为本地模拟，未连接服务器。
+
+![选择来源目录、环境后预览执行计划](docs/images/parameters-preview.png)
+
+![续跑只执行部署及后续检查，检查和构建显示复用结果](docs/images/node-resume.png)
 
 ## 快速开始
 
@@ -76,6 +84,8 @@ curl -fsSL https://raw.githubusercontent.com/foxhello-ai/tools-buttons/download/
 ~/.local/bin/project-actions open .                # 启动已接入项目的桌面按钮
 ~/.local/bin/project-actions validate .            # 验证 JSON 配置与流程图结构
 ~/.local/bin/project-actions web .                 # 使用浏览器模式
+~/.local/bin/project-actions example .             # 增加参数与续跑的本地模拟示例（0.2.0+）
+~/.local/bin/project-actions docs .                # 更新项目指南／Schema，备份旧副本（0.2.0+）
 ~/.local/bin/project-actions version               # 查看安装版本
 ```
 
@@ -94,6 +104,7 @@ your-project/
     ├── AI_GUIDE.md              # AI 配置与脚本接入指南
     ├── AGENTS.md                # 目录级 AI 阅读入口
     ├── schema.json              # JSON 结构说明与编辑器补全
+    ├── PARAMETERS_AND_RESUME.md # 参数、预览、检查点与节点续跑的业务接入
     ├── PROTOCOL.md              # 日志、节点、进度和产物事件协议
     ├── .gitignore               # 忽略本地运行数据
     ├── runs/<run-id>/           # 任务状态、完整日志与产物，自动生成
@@ -248,6 +259,20 @@ source "${PROJECT_ACTIONS_SHELL:?请通过 Project Actions 启动此脚本}"
 初始化已在 `AGENTS.md` 中添加阅读入口，AI 可据此找到完整字段、示例和事件接口。
 只调整按钮与业务脚本时，通常无需修改或重新编译桌面程序。
 
+## 使用实例：选择来源并从部署节点继续
+
+需要 0.2.0。已接入的测试项目执行 `~/.local/bin/project-actions example .`，然后打开桌面按钮或 Web。
+选择目录和环境 → 预览并确认 → 在模拟部署时停止 → 点击该节点 → 从此节点继续。
+脚本复核固定来源和产物后，复用检查、构建结果，只运行部署和后续检查；新任务可导航回原任务。
+
+完整 JSON、业务 Shell 写法、可运行 Python 示例、Git worktree provider、AI 可调用的 HTTP API 见
+[业务参数与节点续跑指南](project-actions/PARAMETERS_AND_RESUME.md)。
+项目只需改自己的 JSON 和脚本。应用不扫描 worktree，也不执行 Git 切分支逻辑。
+
+升级时安装包会保留项目已有文档；执行 `project-actions docs .` 可更新指南与 Schema，
+不同的旧副本保存在 `.project-actions/.docs-backup/`，配置、脚本与项目 ID 不会被该命令替换。
+已运行的旧版桌面／服务需退出后重开；云端下载地址的版本以 `release.json` 为准。
+
 ## 实现与平台支持
 
 ```mermaid
@@ -282,6 +307,8 @@ Codex 项目跟随通过读取其本地状态文件实现，适配的是内部�
 | 文档 / 目录 | 内容 |
 | --- | --- |
 | [AI 配置与脚本接入指南](project-actions/AI_GUIDE.md) | JSON 字段、完整示例、失败处理与验证步骤 |
+| [参数与续跑接入](project-actions/PARAMETERS_AND_RESUME.md) | JSON 参数、业务预览、Shell 检查点、复用、实际结果及 AI API |
+| [可运行业务示例](project-actions/examples/resumable-pipeline/README.md) | 本地模拟演练与项目侧 worktree 选项 |
 | [事件协议](project-actions/PROTOCOL.md) | 日志、节点、进度、产物事件和 HTTP 接口 |
 | [配置 Schema](project-actions/schema.json) | 配置结构与约束 |
 | [共享执行器与 Web](project-actions/README.md) | 源码接入、任务记录与服务行为 |
@@ -294,7 +321,7 @@ Codex 项目跟随通过读取其本地状态文件实现，适配的是内部�
 ```bash
 python3 -m unittest discover -s project-actions/tests -v
 bash directory-button-demo/build-native.sh
-python3 project-actions/distribution/build-release.py --version 0.1.0 --output-dir dist
+python3 project-actions/distribution/build-release.py --version 0.2.0 --output-dir dist
 python3 project-actions/distribution/verify-release.py dist/project-actions-macos.run
 ```
 

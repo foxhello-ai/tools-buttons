@@ -249,6 +249,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             DispatchQueue.main.async { self.verifyLifecycle() }
             return
         }
+        if arguments.contains("--verify-resume") {
+            DispatchQueue.main.async { self.verifyResume() }
+        }
         if arguments.contains("--verify-actions") {
             DispatchQueue.main.async { self.verifyActions() }
             return
@@ -670,6 +673,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         guard serviceReady, !pendingActions.contains(button.actionID) else { return }
         let id = button.actionID
+        if definitions.first(where: { $0.id == id })?.requiresConfirmation == true {
+            showTask(actionID: id)
+            return
+        }
         pendingActions.insert(id)
         updateButtonStates()
         service.start(id) { result in
@@ -689,10 +696,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
-    private func showTask(_ id: String? = nil) {
+    private func showTask(_ id: String? = nil, actionID: String? = nil) {
         guard let baseURL = service.baseURL else { return }
         if taskWindow == nil { taskWindow = TaskWindow() }
-        taskWindow?.open(baseURL: baseURL, runID: id, projectName: projectName)
+        taskWindow?.open(baseURL: baseURL, runID: id, actionID: actionID, projectName: projectName)
         refreshVisibility()
     }
 
@@ -701,6 +708,66 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         refreshTimer?.invalidate()
         service?.shutdown()
+    }
+
+    private func verifyResume() {
+        precondition(CommandLine.arguments.contains("--preferences-suite") && CommandLine.arguments.contains("--directory"))
+        visibility.mode = .shown
+        refreshVisibility()
+        let deadline = Date().addingTimeInterval(60)
+        var phase = 0
+        var inspecting = false
+        var lastObservation = ""
+        let timer = Timer.scheduledTimer(withTimeInterval: 0.2, repeats: true) { timer in
+            precondition(Date() < deadline, "Native parameter/resume verification timed out in phase \(phase): \(self.serviceError ?? "") \(lastObservation)")
+            guard self.serviceReady, !inspecting else { return }
+            if phase == 0 {
+                self.buttons.first(where: { $0.actionID == "resumable-demo" })!.performClick(nil)
+                phase = 1
+                return
+            }
+            guard let webView = self.taskWindow?.webView else { return }
+            inspecting = true
+            let js = "JSON.stringify({dialog:!document.getElementById('action-dialog').hidden,fields:document.querySelectorAll('.parameter-field').length,ready:!document.getElementById('dialog-confirm').disabled,status:document.getElementById('run-status').textContent,deploy:document.querySelector('[aria-label=\"模拟部署：进行中\"]')!==null,reused:document.querySelectorAll('.flow-node.reused').length,parent:state.run?.parentRunId,runs:state.runs.length,error:document.getElementById('dialog-error').textContent})"
+            webView.evaluateJavaScript(js) { value, error in
+                defer { inspecting = false }
+                lastObservation = error?.localizedDescription ?? String(describing: value)
+                guard error == nil, let value = value as? String, let data = value.data(using: .utf8),
+                      let result = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return }
+                if phase == 1 && result["fields"] as? Int == 3 {
+                    precondition(result["runs"] as? Int == 0)
+                    webView.evaluateJavaScript("document.getElementById('dialog-cancel').click()")
+                    phase = 2
+                } else if phase == 2 && result["dialog"] as? Bool == false {
+                    precondition(result["runs"] as? Int == 0, "Cancel must not create a task")
+                    self.buttons.first(where: { $0.actionID == "resumable-demo" })!.performClick(nil)
+                    phase = 3
+                } else if phase == 3 && result["fields"] as? Int == 3 {
+                    webView.evaluateJavaScript("document.getElementById('parameter-delay').value='1.5';document.getElementById('parameter-delay').dispatchEvent(new Event('input'));document.getElementById('dialog-inspect').click()")
+                    phase = 4
+                } else if phase == 4 && result["ready"] as? Bool == true {
+                    webView.evaluateJavaScript("document.getElementById('dialog-confirm').click()")
+                    phase = 5
+                } else if phase == 5 && result["deploy"] as? Bool == true {
+                    webView.evaluateJavaScript("document.getElementById('cancel').click()")
+                    phase = 6
+                } else if phase == 6 && result["status"] as? String == "已停止" {
+                    webView.evaluateJavaScript("document.querySelector('[aria-label=\"模拟部署：已停止\"]').dispatchEvent(new Event('click'));document.querySelector('#node-actions button').click()")
+                    phase = 7
+                } else if phase == 7 && result["dialog"] as? Bool == true && result["ready"] as? Bool == true {
+                    webView.evaluateJavaScript("document.getElementById('dialog-confirm').click()")
+                    phase = 8
+                } else if phase == 8 && result["status"] as? String == "已完成" {
+                    precondition(result["reused"] as? Int == 2)
+                    precondition(result["parent"] as? String != nil)
+                    print("PASS: native button → parameter preview → cancel without run → execute → stop deployment → click node → resume with two reused nodes and linked history.")
+                    timer.invalidate()
+                    NSApp.terminate(nil)
+                }
+            }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        connectService()
     }
 
     private func verifyActions() {

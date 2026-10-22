@@ -7,6 +7,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import sys
+import uuid
 
 RELEASE = Path(__file__).resolve().parent
 APP = RELEASE / 'ProjectActions.app'
@@ -37,7 +38,7 @@ def attach_project(project):
     # Validate existing configuration before adding documentation; never replace it.
     actions.load_config(project)
     destination = config.parent
-    for name in ('AI_GUIDE.md', 'PROTOCOL.md', 'schema.json'):
+    for name in ('AI_GUIDE.md', 'PROTOCOL.md', 'PARAMETERS_AND_RESUME.md', 'schema.json'):
         if not (destination / name).exists():
             shutil.copy2(TOOL / name, destination / name)
     if not (destination / 'AGENTS.md').exists():
@@ -55,6 +56,25 @@ def attach_project(project):
         with root_entry.open('a', encoding='utf-8') as stream:
             stream.write(('\n\n' if original else '') + AGENT_ENTRY)
     return project
+
+
+def refresh_docs(project):
+    """Explicit upgrade; preserve locally edited guide/schema copies in a backup."""
+    actions.load_config(project)
+    local = project / '.project-actions'
+    backup = local / '.docs-backup' / uuid.uuid4().hex
+    for name in ('AI_GUIDE.md', 'PROTOCOL.md', 'PARAMETERS_AND_RESUME.md', 'schema.json'):
+        destination = local / name
+        content = (TOOL / name).read_bytes()
+        if destination.exists() and destination.read_bytes() != content:
+            backup.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(destination, backup / name)
+        destination.write_bytes(content)
+    ignore = local / '.gitignore'
+    existing = ignore.read_text(encoding='utf-8') if ignore.exists() else ''
+    if '.docs-backup/' not in existing.splitlines():
+        ignore.write_text(existing + ('\n' if existing and not existing.endswith('\n') else '') + '.docs-backup/\n', encoding='utf-8')
+    print('项目指南与 Schema 已更新。' + (' 原文件备份：%s' % backup if backup.exists() else ''))
 
 
 def codex_project_id(project):
@@ -109,14 +129,14 @@ def open_desktop(project, project_id=None):
 
 def main(argv=None):
     argv = list(sys.argv[1:] if argv is None else argv)
-    known = {'add', 'open', 'validate', 'web', 'version'}
+    known = {'add', 'open', 'validate', 'web', 'version', 'example', 'docs'}
     if not argv:
         argv = ['add', '.']
     elif not argv[0].startswith('-') and argv[0] not in known:
         argv.insert(0, 'add')
     parser = argparse.ArgumentParser(description='Project Actions：一条命令接入项目')
     commands = parser.add_subparsers(dest='command', required=True)
-    for name in ('add', 'open', 'validate', 'web'):
+    for name in ('add', 'open', 'validate', 'web', 'example', 'docs'):
         command = commands.add_parser(name)
         command.add_argument('project', nargs='?', default='.')
         if name in {'add', 'open'}:
@@ -139,6 +159,11 @@ def main(argv=None):
         elif arguments.command == 'open':
             actions.load_config(project)
             open_desktop(project, arguments.project_id)
+        elif arguments.command == 'example':
+            actions.load_config(project)
+            subprocess.run([sys.executable,str(TOOL/'examples/resumable-pipeline/install.py'),str(project)],check=True)
+        elif arguments.command == 'docs':
+            refresh_docs(project)
         elif arguments.command == 'validate':
             config = actions.load_config(project)
             print('Valid: %s (%s actions)' % (config['project']['name'], len(config['actions'])))

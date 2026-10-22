@@ -6,7 +6,6 @@ final class TaskWindow: NSObject, NSWindowDelegate, WKNavigationDelegate, WKDown
     let webView: WKWebView
     var wantsVisible = false
     private var origin: URL?
-    private var currentURL: URL?
 
     override init() {
         let configuration = WKWebViewConfiguration()
@@ -25,16 +24,17 @@ final class TaskWindow: NSObject, NSWindowDelegate, WKNavigationDelegate, WKDown
         window.center()
     }
 
-    func open(baseURL: URL, runID: String? = nil, projectName: String) {
+    func open(baseURL: URL, runID: String? = nil, actionID: String? = nil, projectName: String) {
         origin = baseURL
         var parts = URLComponents(url: baseURL, resolvingAgainstBaseURL: false)!
         parts.path = "/"
         parts.queryItems = [URLQueryItem(name: "desktop", value: "1")]
-        parts.fragment = runID.map { "run=\($0)" } ?? "history"
+        parts.fragment = actionID.map { "action=\($0)" } ?? runID.map { "run=\($0)" } ?? "history"
         let url = parts.url!
         // Reload to obtain a fresh interface token after a backend restart.
-        if currentURL != url || !window.isVisible { webView.load(URLRequest(url: url)) }
-        currentURL = url
+        // The Web UI changes its route after cancel/confirm. Compare its actual
+        // URL so opening the same native action again returns to its form.
+        if webView.url != url || !window.isVisible { webView.load(URLRequest(url: url)) }
         window.title = "\(projectName) · 项目任务"
         wantsVisible = true
         window.makeKeyAndOrderFront(nil)
