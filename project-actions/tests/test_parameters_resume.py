@@ -205,7 +205,7 @@ class ParametersResumeTests(unittest.TestCase):
         script.write_text('''#!/bin/bash
 set -euo pipefail
 source "$PROJECT_ACTIONS_SHELL"
-checkpoint_id="$($PROJECT_ACTIONS_PYTHON - <<'PY'
+checkpoint_id="$("$PROJECT_ACTIONS_PYTHON" - <<'PY'
 import json,os
 c=json.load(open(os.environ['PROJECT_ACTIONS_CONTEXT_FILE']))
 print(c.get('plan',[{}])[0].get('checkpointId',''))

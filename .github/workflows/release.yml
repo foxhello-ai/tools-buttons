@@ -18,6 +18,10 @@ jobs:
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
+      - name: Use the release Python version
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
       - name: Verify execution service
         run: python3 -m unittest discover -s project-actions/tests -v
       - name: Build universal installer with bundled Python

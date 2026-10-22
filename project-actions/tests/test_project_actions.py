@@ -217,10 +217,15 @@ class ProjectActionsTests(unittest.TestCase):
         command = [sys.executable, str(app.ROOT / 'project_actions.py'), 'serve', '--project', str(project)]
         process = subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
         try:
-            deadline = time.monotonic() + 5
-            while not runtime.exists() and time.monotonic() < deadline:
+            deadline = time.monotonic() + 15
+            while not runtime.exists() and process.poll() is None and time.monotonic() < deadline:
                 time.sleep(.02)
-            self.assertTrue(runtime.exists())
+            if not runtime.exists():
+                if process.poll() is None:
+                    process.terminate()
+                _, errors = process.communicate(timeout=8)
+                self.fail('CLI service did not publish discovery information: exit=%s, stderr=%s' % (
+                    process.returncode, errors.decode('utf-8', errors='replace')))
             descriptor = json.loads(runtime.read_text())
             self.assertEqual(descriptor['directory'], str(project.resolve()))
             self.assertEqual(descriptor['pid'], process.pid)
@@ -235,7 +240,8 @@ class ProjectActionsTests(unittest.TestCase):
             self.assertEqual(json.loads(runtime.read_text())['pid'], process.pid)
             self.assertIsNone(process.poll())
         finally:
-            process.terminate()
+            if process.poll() is None:
+                process.terminate()
             process.communicate(timeout=8)
         self.assertFalse(runtime.exists())
         # A stale discovery file cannot prevent a fresh, exclusively locked service.
