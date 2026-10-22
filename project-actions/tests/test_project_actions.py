@@ -9,6 +9,7 @@ import tempfile
 import threading
 import time
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
@@ -208,6 +209,22 @@ class ProjectActionsTests(unittest.TestCase):
         with self.assertRaises(HTTPError) as unknown:
             self.json_request('/api/runs', {'actionId': 'not-configured'})
         self.assertEqual(unknown.exception.code, 404)
+
+    def test_local_service_works_without_reverse_dns(self):
+        runner = app.Runner(self.project)
+        with patch('socket.getfqdn', side_effect=OSError('DNS unavailable')):
+            server = app.ActionServer(('127.0.0.1', 0), runner)
+        thread = threading.Thread(target=server.serve_forever, kwargs={'poll_interval': .02}, daemon=True)
+        thread.start()
+        try:
+            request = Request(runner.base_url + '/api/project', headers={'Authorization': 'Bearer ' + server.token})
+            with urlopen(request, timeout=3) as response:
+                self.assertEqual(json.load(response)['project']['name'], 'project A')
+        finally:
+            runner.shutdown()
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=2)
 
     def test_cli_service_discovery_singleton_and_shutdown(self):
         project = Path(self.temporary.name) / 'desktop project'
